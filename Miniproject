@@ -1,0 +1,125 @@
+// app.js
+// Minimal Project Submission Portal using Express + Multer
+// Run: npm init -y
+//      npm i express multer body-parser
+//      node app.js
+// Open: http://localhost:3000/
+
+const express = require('express');
+const multer  = require('multer');
+const bodyParser = require('body-parser');
+const fs = require('fs');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Ensure uploads dir and submissions file exist
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const SUBMISSIONS_FILE = path.join(__dirname, 'submissions.json');
+
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(SUBMISSIONS_FILE)) fs.writeFileSync(SUBMISSIONS_FILE, '[]', 'utf8');
+
+// Simple JSON read/write helpers
+function loadSubmissions() {
+  try {
+    return JSON.parse(fs.readFileSync(SUBMISSIONS_FILE, 'utf8') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+function saveSubmissions(list) {
+  fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(list, null, 2), 'utf8');
+}
+
+// Multer storage and file validation
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    // Use timestamp + sanitized original name
+    const ts = Date.now();
+    const safeName = file.originalname.replace(/\s+/g, '').replace(/[^a-zA-Z0-9\.-]/g, '');
+    cb(null, ${ts}_${safeName});
+  }
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB limit
+  fileFilter: (req, file, cb) => {
+    // Accept pdf, doc, docx, zip, pptx
+    const allowed = /\.(pdf|docx?|zip|pptx?)$/i;
+    if (!allowed.test(file.originalname)) {
+      return cb(new Error('Only PDF, DOC/DOCX, ZIP, PPT/PPTX files are allowed'));
+    }
+    cb(null, true);
+  }
+}).single('projectFile');
+
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Serve uploaded files for download (protect in production)
+app.use('/uploads', express.static(UPLOAD_DIR));
+
+// --- Routes ---
+
+// Student submission form
+app.get('/', (req, res) => {
+  res.send(`
+  <!doctype html>
+  <html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Project Submission Portal</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width:800px; margin:20px auto; }
+      label{display:block;margin-top:10px}
+      input[type=text], input[type=file], textarea { width:100%; padding:8px;}
+      .note{font-size:0.9em;color:#555}
+      .btn{margin-top:12px;padding:10px 16px}
+    </style>
+  </head>
+  <body>
+    <h1>Project Submission Portal</h1>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+      <label>Student Name:
+        <input type="text" name="studentName" required />
+      </label>
+      <label>Student ID:
+        <input type="text" name="studentId" required />
+      </label>
+      <label>Project Title:
+        <input type="text" name="projectTitle" required />
+      </label>
+      <label>Remarks (optional):
+        <textarea name="remarks" rows="3"></textarea>
+      </label>
+      <label>Project File (PDF / DOC / DOCX / ZIP / PPTX) — max 10 MB:
+        <input type="file" name="projectFile" required />
+      </label>
+      <button class="btn" type="submit">Upload Project</button>
+    </form>
+    <p class="note">After upload, students get a confirmation and submission appears in the faculty dashboard.</p>
+    <hr/>
+    <p><a href="/faculty">Faculty Dashboard (view submissions)</a></p>
+  </body>
+  </html>
+  `);
+});
+
+// Handle upload
+app.post('/upload', (req, res) => {
+  upload(req, res, function (err) {
+    if (err) {
+      return res.send(<p style="color:red">Upload error: ${err.message}</p><p><a href="/">Back</a></p>);
+    }
+    // validate fields
+    const { studentName, studentId, projectTitle, remarks } = req.body;
+    if (!studentName || !studentId || !projectTitle || !req.file) {
+      // remove file if partially uploaded
+      if (req.file && req.file.path) fs.unlinkSync(req.file.path);
+      return res.send(<p style="color:red">Missing required fields.</p><p><a href="/">Back</a></p>);
+    }
+
+    const subm
